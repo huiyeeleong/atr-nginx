@@ -1,0 +1,91 @@
+---
+- hosts: all
+  gather_facts: False
+  become: yes
+
+  tasks:
+    - name: Register with the AWS registry
+      command: sh {{ INSTALL_DIR }}/docker/dev-setup-ecr-registry.sh {{ AWS_ID }} {{ AWS_KEY }}
+    # TO BACKEND
+    - name: Start Back End
+      tags:
+        - readify-backend
+      docker_container:
+        name: 'readify-backend'
+        image: '546363320159.ecr.us-east-1.amazonaws.com/turing-backend:1.1.102_test'
+        state: started
+        restart_policy: unless-stopped
+        hostname: 'readify-backend'
+        command: ./run_api.sh
+        cpu_period: "100000"
+        cpu_quota: "100000"
+        memory: "8G"
+        volumes:
+          - '/var/run/docker.sock:/var/run/docker.sock'
+          - 'image_data:/image_data'
+        networks:
+          - name: kibana_readify_net
+        env:
+          BASE_URL: '{{ TuringGatewayHost }}'
+          AUTH_URL: '{{ authUrl }}'
+          MONGODB_USERNAME: '{{ mongodbUsername }}'
+          MONGODB_PASSWORD: '{{ mongodbPassword }}'
+          REPORTING_ELASTIC_ENABLE: 'false'
+          ELASTIC_URL: 'https://search-turing-usage-es-rmbr3tiewdzdcsjypextpmh5ay.ap-southeast-2.es.amazonaws.com'
+          ELASTIC_USERNAME: 'turing-admin'
+          ELASTIC_PASSWORD: 'Tur1ngcumberbatch!'
+          DATA_PRESENT_MODEL_ID: '5ef16a3bda6b160010589563'
+          BATCH_CONCURRENCY: '0'
+          SINGLE_CONCURRENCY: '0'
+          HOMO_CONCURRENCY: '0'
+          SPLITTING_CONCURRENCY: '3'
+          FE_WORKER: 'true'
+        log_driver: 'json-file'
+        log_opt:
+          max-size: '10m'
+          max-file: '5'
+      when: BACKEND_VERSION is defined
+
+    - pause:
+       seconds: 5
+
+    # TO BACKEND
+    - name: Start Back End Workers
+      tags:
+        - readify-backend-workers
+      docker_container:
+        name: 'readify-backend-worker-{{ item }}'
+        image: '546363320159.dkr.ecr.us-east-1.amazonaws.com/turing-backend:{{ BACKEND_VERSION }}'
+        state: started
+        restart_policy: unless-stopped
+        hostname: 'readify-backend-worker-{{ item }}'
+        command: ./run_api.sh
+        cpu_period: "100000"
+        cpu_quota: "400000"
+        memory: "13G"
+        volumes:
+          - '/var/run/docker.sock:/var/run/docker.sock'
+          - 'image_data:/image_data'
+        networks:
+          - name: kibana_readify_net
+        env:
+          BASE_URL: '{{ TuringGatewayHost }}'
+          AUTH_URL: '{{ authUrl }}'
+          MONGODB_USERNAME: '{{ mongodbUsername }}'
+          MONGODB_PASSWORD: '{{ mongodbPassword }}'
+          REPORTING_ELASTIC_ENABLE: 'false'
+          ELASTIC_URL: 'https://search-turing-usage-es-rmbr3tiewdzdcsjypextpmh5ay.ap-southeast-2.es.amazonaws.com'
+          ELASTIC_USERNAME: 'turing-admin'
+          ELASTIC_PASSWORD: 'Tur1ngcumberbatch!'
+          BATCH_CONCURRENCY: '3'
+          SINGLE_CONCURRENCY: '3'
+          HOMO_CONCURRENCY: '2'
+          FE_WORKER: 'false'
+          DATA_PRESENT_MODEL_ID: '5ef16a3bda6b160010589563'
+        log_driver: 'json-file'
+        log_opt:
+          max-size: '10m'
+          max-file: '5'
+      when: BACKEND_VERSION is defined
+      with_sequence: count={{ backendWorkerCount | default(1) }} start=1
+
